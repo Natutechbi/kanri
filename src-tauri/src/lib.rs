@@ -12,6 +12,35 @@
 use tauri::Manager;
 use tauri_plugin_autostart::MacosLauncher;
 
+/// Verify Nextcloud credentials by calling the OCS user endpoint.
+/// Runs in the Rust backend so it is not subject to the webview CSP/CORS.
+#[tauri::command]
+fn test_nextcloud(url: String, user: String, password: String) -> Result<String, String> {
+    let base = url.trim_end_matches('/');
+    if base.is_empty() || user.is_empty() || password.is_empty() {
+        return Err("server URL, username and app password are required".into());
+    }
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get(format!("{base}/ocs/v2.php/cloud/user?format=json"))
+        .basic_auth(&user, Some(&password))
+        .header("OCS-APIRequest", "true")
+        .send()
+        .map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let body = resp.text().unwrap_or_default();
+    if !status.is_success() {
+        return Err(format!("HTTP {}: {}", status.as_u16(), body));
+    }
+    let v: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("invalid response: {e}"))?;
+    let id = v["ocs"]["data"]["id"].as_str().unwrap_or("?");
+    Ok(format!("Connected as {id}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
@@ -37,6 +66,7 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             None,
         ))
+        .invoke_handler(tauri::generate_handler![test_nextcloud])
         .setup(|app| {
             #[cfg(desktop)]
             let _ = app.handle().plugin(tauri_plugin_single_instance::init(|app, _args,_cwd| {

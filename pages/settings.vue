@@ -312,6 +312,99 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>. -->
         </div>
       </div>
     </section>
+
+    <section id="nextcloud-settings">
+      <h2 class="mb-2 mt-8 text-2xl font-bold">Nextcloud</h2>
+      <span class="text-dim-3 mb-2">
+        Sync boards with a Nextcloud Deck account. Credentials are stored
+        locally in this app's data file and read by the sync gateway.
+      </span>
+
+      <div class="mt-4 flex w-[48rem] flex-col gap-4">
+        <div class="flex flex-col gap-1">
+          <label class="text-lg" for="nc-url">Server URL</label>
+          <input
+            id="nc-url"
+            v-model="nextcloud.url"
+            type="text"
+            placeholder="https://nextcloud.example.com"
+            class="bg-elevation-1 rounded-md px-3 py-2 outline-none"
+          />
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <label class="text-lg" for="nc-user">Username</label>
+          <input
+            id="nc-user"
+            v-model="nextcloud.user"
+            type="text"
+            placeholder="hugo"
+            class="bg-elevation-1 rounded-md px-3 py-2 outline-none"
+          />
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <label class="text-lg" for="nc-pass">App password</label>
+          <input
+            id="nc-pass"
+            v-model="nextcloud.appPassword"
+            type="password"
+            placeholder="xxxxx-xxxxx-xxxxx-xxxxx-xxxxx"
+            class="bg-elevation-1 rounded-md px-3 py-2 outline-none"
+          />
+          <span class="text-dim-3 text-sm">
+            Create one in Nextcloud &rarr; Settings &rarr; Security &rarr;
+            Devices &amp; sessions.
+          </span>
+        </div>
+
+        <div class="flex flex-row items-center justify-between">
+          <div>
+            <h3 class="text-lg">Enable sync</h3>
+            <span class="text-dim-2">
+              Let the gateway push and pull boards for this account.
+            </span>
+          </div>
+          <SwitchRoot
+            v-model:checked="nextcloud.enabled"
+            class="bg-elevation-2 bg-accent-checked relative flex h-[24px] w-[42px] cursor-pointer rounded-full shadow-sm focus-within:outline focus-within:outline-black"
+          >
+            <SwitchThumb
+              class="bg-button-text my-auto block size-[18px] translate-x-0.5 rounded-full shadow-sm transition-transform duration-100 will-change-transform data-[state=checked]:translate-x-[19px]"
+            />
+          </SwitchRoot>
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <label class="text-lg" for="nc-poll">Poll interval (seconds)</label>
+          <input
+            id="nc-poll"
+            v-model.number="nextcloud.pollIntervalSecs"
+            type="number"
+            min="5"
+            class="bg-elevation-1 w-40 rounded-md px-3 py-2 outline-none"
+          />
+        </div>
+
+        <div class="flex flex-row items-center gap-3">
+          <button
+            class="text-buttons bg-accent transition-button rounded-md px-4 py-2"
+            @click="saveNextcloud"
+          >
+            Save
+          </button>
+          <button
+            class="bg-elevation-1 bg-elevation-2-hover border-accent flex cursor-pointer rounded-md border border-dotted px-4 py-2"
+            @click="testNextcloud"
+          >
+            Test connection
+          </button>
+          <span v-if="nextcloudStatus" class="text-dim-2">{{
+            nextcloudStatus
+          }}</span>
+        </div>
+      </div>
+    </section>
   </main>
 </template>
 
@@ -320,6 +413,7 @@ import type { ThemeIdentifiers } from "@/types/kanban-types";
 import type { Ref } from "vue";
 
 import { useTauriStore } from "@/stores/tauriStore";
+import { invoke } from "@tauri-apps/api/core";
 import { kanriThemeSchema } from "@/types/json-schemas";
 import emitter from "@/utils/emitter";
 import { catppuccin, dark, light } from "@/utils/themes";
@@ -356,6 +450,36 @@ const addToTopCheckbox = ref(false);
 const displayCardCountCheckbox = ref(false);
 
 const deleteBoardModalVisible = ref(false);
+
+const nextcloud = reactive({
+  url: "",
+  user: "",
+  appPassword: "",
+  enabled: false,
+  pollIntervalSecs: 20,
+});
+const nextcloudStatus = ref("");
+
+const saveNextcloud = async () => {
+  const existing = (await store.get("nextcloud")) || {};
+  await store.set("nextcloud", { ...existing, ...nextcloud });
+  await store.save();
+  nextcloudStatus.value = "Saved.";
+};
+
+const testNextcloud = async () => {
+  nextcloudStatus.value = "Testing…";
+  try {
+    const msg = await invoke<string>("test_nextcloud", {
+      url: nextcloud.url,
+      user: nextcloud.user,
+      password: nextcloud.appPassword,
+    });
+    nextcloudStatus.value = msg;
+  } catch (e) {
+    nextcloudStatus.value = `Failed: ${e}`;
+  }
+};
 
 onMounted(async () => {
   emitter.emit("showSidebarBackArrow");
@@ -396,6 +520,9 @@ onMounted(async () => {
       console.error("Error when fetching autostart status:", autostartStatus);
       break;
   }
+
+  const nc = await store.get("nextcloud");
+  if (nc) Object.assign(nextcloud, nc);
 });
 
 const setTheme = (themeName: ThemeIdentifiers) => {
